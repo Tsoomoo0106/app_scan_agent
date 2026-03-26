@@ -1,0 +1,101 @@
+rules:
+  - id: android-hardcoded-key
+    patterns:
+      - pattern: |
+          String $KEY = "...";
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: (?i)(api_?key|secret|password|token|auth)
+    message: Possible hardcoded credential in variable $KEY
+    severity: WARNING
+    languages: [java, kotlin]
+
+  - id: android-ssl-bypass-empty-trust
+    pattern: |
+      public void checkServerTrusted(...) {}
+    message: Empty checkServerTrusted disables SSL certificate validation
+    severity: ERROR
+    languages: [java, kotlin]
+
+  - id: android-webview-js-enabled
+    pattern: |
+      $WV.getSettings().setJavaScriptEnabled(true);
+    message: JavaScript enabled in WebView — ensure URLs loaded are trusted
+    severity: WARNING
+    languages: [java, kotlin]
+
+  - id: android-webview-js-bridge
+    pattern: |
+      $WV.addJavascriptInterface($OBJ, $NAME);
+    message: JavaScript bridge exposed — verify interface methods are safe
+    severity: ERROR
+    languages: [java, kotlin]
+
+  - id: android-world-readable-prefs
+    pattern: |
+      getSharedPreferences($NAME, MODE_WORLD_READABLE)
+    message: SharedPreferences with MODE_WORLD_READABLE — readable by other apps
+    severity: ERROR
+    languages: [java, kotlin]
+
+  - id: android-ecb-mode
+    pattern: |
+      Cipher.getInstance("AES/ECB/...")
+    message: AES in ECB mode is insecure — use AES/GCM/NoPadding instead
+    severity: ERROR
+    languages: [java, kotlin]
+
+  - id: android-weak-hash-md5
+    pattern: |
+      MessageDigest.getInstance("MD5")
+    message: MD5 is cryptographically broken — use SHA-256 or better
+    severity: WARNING
+    languages: [java, kotlin]
+
+  - id: android-insecure-random
+    pattern: |
+      new Random()
+    message: java.util.Random is not cryptographically secure — use SecureRandom
+    severity: WARNING
+    languages: [java, kotlin]
+
+  - id: android-sql-injection
+    pattern: |
+      $DB.rawQuery($QUERY + $INPUT, ...)
+    message: Potential SQL injection — use parameterized queries
+    severity: ERROR
+    languages: [java, kotlin]
+
+  - id: android-external-storage-write
+    pattern: |
+      Environment.getExternalStorageDirectory()
+    message: Writing to external storage — data accessible to other apps
+    severity: WARNING
+    languages: [java, kotlin]
+
+  - id: android-log-sensitive
+    patterns:
+      - pattern: |
+          Log.$LEVEL($TAG, $MSG + $VAR);
+      - metavariable-regex:
+          metavariable: $MSG
+          regex: (?i)(password|token|secret|key|auth|credential)
+    message: Logging potentially sensitive data
+    severity: WARNING
+    languages: [java, kotlin]
+
+  - id: ios-ats-disabled
+    pattern: |
+      <key>NSAllowsArbitraryLoads</key>
+      <true/>
+    message: App Transport Security disabled — allows HTTP connections
+    severity: WARNING
+    languages: [generic]
+
+  - id: ios-weak-keychain-access
+    patterns:
+      - pattern: |
+          kSecAttrAccessible: kSecAttrAccessibleAlways
+    message: Keychain item accessible always (even when locked) — use kSecAttrAccessibleWhenUnlocked
+    severity: WARNING
+    languages: [swift, generic]
