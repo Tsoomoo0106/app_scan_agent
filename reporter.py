@@ -6,74 +6,104 @@ from typing import List, Dict
 def generate_report(output_dir: str, findings: List[Dict], info: dict) -> str:
     out = Path(output_dir)
     report_path = out / "report.md"
-    pkg_id = info.get("identifier", out.name)
-    platform = info.get("platform","android").capitalize()
-    framework = (out/"framework.txt").read_text().strip() if (out/"framework.txt").exists() else "Unknown"
-    counts = {"CRITICAL":0,"HIGH":0,"MEDIUM":0,"LOW":0,"INFO":0}
+
+    pkg_id    = info.get("identifier", out.name)
+    platform  = info.get("platform", "android").capitalize()
+    framework = (out / "framework.txt").read_text().strip() if (out / "framework.txt").exists() else "Unknown"
+
+    counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
     for f in findings:
-        s = f.get("severity","INFO"); counts[s] = counts.get(s,0)+1
-    if counts["CRITICAL"] > 0: overall = "🔴 CRITICAL"
-    elif counts["HIGH"] >= 3: overall = "🔴 HIGH"
-    elif counts["HIGH"] > 0: overall = "🟠 HIGH"
-    elif counts["MEDIUM"] > 0: overall = "🟡 MEDIUM"
-    else: overall = "🟢 LOW"
+        s = f.get("severity", "INFO")
+        counts[s] = counts.get(s, 0) + 1
+
+    if counts["CRITICAL"] > 0:
+        overall = "🔴 CRITICAL"
+    elif counts["HIGH"] >= 3:
+        overall = "🔴 HIGH"
+    elif counts["HIGH"] > 0:
+        overall = "🟠 HIGH"
+    elif counts["MEDIUM"] > 0:
+        overall = "🟡 MEDIUM"
+    else:
+        overall = "🟢 LOW"
 
     L = []
-    L += ["# 📱 Mobile Security Report","",
-          f"| Field | Value |",f"|-------|-------|",
-          f"| **Package** | `{pkg_id}` |",f"| **Platform** | {platform} |",
-          f"| **Framework** | {framework} |",
-          f"| **Date** | {datetime.now().strftime('%Y-%m-%d %H:%M')} |",
-          f"| **Tool** | mobile-security-agent v1.1 |","","---","",
-          "## Summary","",
-          "| Severity | Count |","|----------|-------|",
-          f"| 🔴 CRITICAL | {counts['CRITICAL']} |",
-          f"| 🟠 HIGH | {counts['HIGH']} |",
-          f"| 🟡 MEDIUM | {counts['MEDIUM']} |",
-          f"| 🔵 LOW | {counts['LOW']} |","",
-          f"**Overall Risk: {overall}**","","---","","## Findings",""]
+    L += [
+        "# 📱 Mobile Security Report", "",
+        "| Field | Value |",
+        "|-------|-------|",
+        f"| **Package** | `{pkg_id}` |",
+        f"| **Platform** | {platform} |",
+        f"| **Framework** | {framework} |",
+        f"| **Date** | {datetime.now().strftime('%Y-%m-%d %H:%M')} |",
+        f"| **Tool** | mobile-security-agent v1.2 (Gemini CLI) |",
+        "", "---", "",
+        "## Summary", "",
+        "| Severity | Count |",
+        "|----------|-------|",
+        f"| 🔴 CRITICAL | {counts['CRITICAL']} |",
+        f"| 🟠 HIGH     | {counts['HIGH']} |",
+        f"| 🟡 MEDIUM   | {counts['MEDIUM']} |",
+        f"| 🔵 LOW      | {counts['LOW']} |", "",
+        f"**Overall Risk: {overall}**",
+        "", "---", "",
+        "## Findings", ""
+    ]
 
-    sev_emoji = {"CRITICAL":"🔴","HIGH":"🟠","MEDIUM":"🟡","LOW":"🔵","INFO":"ℹ️"}
-    for sev in ["CRITICAL","HIGH","MEDIUM","LOW","INFO"]:
-        sf = [f for f in findings if f.get("severity")==sev]
-        if not sf: continue
+    sev_emoji = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🔵", "INFO": "ℹ️"}
+
+    for sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]:
+        sf = [f for f in findings if f.get("severity") == sev]
+        if not sf:
+            continue
         L.append(f"### {sev_emoji[sev]} {sev}\n")
-        for i,f in enumerate(sf,1):
-            name = f.get("name","?")
-            fp = _short(f.get("file",""))
-            ln = f.get("line","")
-            content = f.get("content","")
-            L += [f"#### {i}. {name}","",
-                  f"**Category**: {f.get('module','?').replace('_',' ').title()}  ",
-                  f"**Location**: `{fp}:{ln}`  ",""]
+        for i, f in enumerate(sf, 1):
+            name    = f.get("name", "?")
+            fp      = _short(f.get("file", ""))
+            ln      = f.get("line", "")
+            content = f.get("content", "")
+            L += [
+                f"#### {i}. {name}", "",
+                f"**Category**: {f.get('module','?').replace('_',' ').title()} ",
+                f"**Location**: `{fp}:{ln}` ", ""
+            ]
             if content:
-                L += ["**Evidence**:","```",content[:300],"```",""]
-            L += [f"**Fix**: {_rec(f.get('module',''))}","","---",""]
+                L += ["**Evidence**:", "```", content[:300], "```", ""]
+            L += [f"**Fix**: {_rec(f.get('module',''))}", "", "---", ""]
 
-    L += ["## Remediation","","### Immediate"]
-    imm = [f for f in findings if f.get("severity") in ("CRITICAL","HIGH")]
+    L += [
+        "## Remediation Checklist", "",
+        "### 🚨 Immediate (CRITICAL + HIGH)"
+    ]
+    imm = [f for f in findings if f.get("severity") in ("CRITICAL", "HIGH")]
     L += [f"- [ ] {f.get('name','?')}" for f in imm[:10]] or ["- None"]
-    L += ["","### Short-term"]
-    med = [f for f in findings if f.get("severity")=="MEDIUM"]
+    L += ["", "### ⚠️ Short-term (MEDIUM)"]
+    med = [f for f in findings if f.get("severity") == "MEDIUM"]
     L += [f"- [ ] {f.get('name','?')}" for f in med[:8]] or ["- None"]
-    L += ["","---","","*Generated by mobile-security-agent v1.1 — for authorized research only*"]
+
+    L += [
+        "", "---", "",
+        "*Generated by mobile-security-agent v1.2 — for authorized security research only*"
+    ]
 
     report_path.write_text("\n".join(L))
     return str(report_path)
 
 def _short(path):
-    parts = path.replace("\\","/").split("/")
-    for a in ["decompiled","resources","raw"]:
+    parts = path.replace("\\", "/").split("/")
+    for a in ["decompiled", "resources", "raw"]:
         if a in parts:
             return "/".join(parts[parts.index(a):])
-    return "/".join(parts[-4:]) if len(parts)>4 else path
+    return "/".join(parts[-4:]) if len(parts) > 4 else path
 
 def _rec(module):
-    return {"secrets":"Remove credentials. Use Android Keystore or env vars.",
-            "ssl":"Use certificate pinning. Never accept all certificates.",
-            "crypto":"Use AES-256-GCM, SHA-256+, SecureRandom.",
-            "webview":"Validate URLs. Avoid addJavascriptInterface.",
-            "storage":"Use EncryptedSharedPreferences. Avoid external storage for sensitive data.",
-            "sqli":"Use parameterized queries instead of string concatenation.",
-            "permissions":"Request only necessary permissions.",
-            "ai_review":"Review AI finding and apply appropriate fix."}.get(module,"Apply security best practices.")
+    return {
+        "secrets":     "Remove hardcoded credentials. Use Android Keystore or environment variables.",
+        "ssl":         "Implement certificate pinning. Never override SSL trust checks.",
+        "crypto":      "Use AES-256-GCM, SHA-256 or stronger. Always use SecureRandom.",
+        "webview":     "Validate URLs before loading. Avoid addJavascriptInterface if possible.",
+        "storage":     "Use EncryptedSharedPreferences. Avoid external storage for sensitive data.",
+        "sqli":        "Use parameterized queries (PreparedStatement) instead of string concatenation.",
+        "permissions": "Request only necessary permissions. Justify dangerous permissions.",
+        "ai_review":   "Review the AI finding carefully and apply appropriate remediation.",
+    }.get(module, "Apply security best practices and review with a security expert.")
