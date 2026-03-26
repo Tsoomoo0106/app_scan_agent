@@ -1,39 +1,53 @@
 #!/usr/bin/env bash
 # mobile-security-agent setup script
-# Installs all required tools
+# Installs all required tools and fixes project structure
 
 set -e
 
 echo "╔══════════════════════════════════════════════════════╗"
-echo "║     📱 Mobile Security Agent — Setup                 ║"
+echo "║  📱 Mobile Security Agent — Setup v1.2               ║"
 echo "╚══════════════════════════════════════════════════════╝"
 echo ""
 
 OS="$(uname -s)"
 ARCH="$(uname -m)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
-
+# ── Helpers ───────────────────────────────────────────────────────────────────
 info()    { echo "  ℹ️  $*"; }
 success() { echo "  ✅ $*"; }
 warn()    { echo "  ⚠️  $*"; }
 error()   { echo "  ❌ $*"; exit 1; }
+has()     { command -v "$1" &>/dev/null; }
 
-has() { command -v "$1" &>/dev/null; }
+# ── Fix project structure (scripts/ package) ──────────────────────────────────
+echo "── Fixing project structure ────────────────────────────"
+
+mkdir -p "${SCRIPT_DIR}/scripts"
+touch "${SCRIPT_DIR}/scripts/__init__.py"
+
+# Move any .py modules that are still in root into scripts/
+for f in fetcher unpacker hunter reviewer reporter analyze_permissions; do
+    if [[ -f "${SCRIPT_DIR}/${f}.py" ]] && [[ ! -f "${SCRIPT_DIR}/scripts/${f}.py" ]]; then
+        cp "${SCRIPT_DIR}/${f}.py" "${SCRIPT_DIR}/scripts/${f}.py"
+        info "Moved ${f}.py → scripts/${f}.py"
+    fi
+done
+
+success "scripts/ package ready"
 
 # ── Check Prerequisites ───────────────────────────────────────────────────────
-
+echo ""
 echo "── Checking prerequisites ──────────────────────────────"
+has python3 && success "python3: $(python3 --version)"  || error "python3 required"
+has java    && success "java: $(java -version 2>&1 | head -1)" || warn "java not found (required for jadx/apktool)"
+has curl    && success "curl found"   || error "curl required"
+has unzip   && success "unzip found"  || error "unzip required"
 
-has python3 && success "python3: $(python3 --version)" || error "python3 required"
-has java    && success "java: $(java -version 2>&1 | head -1)" || warn "java not found (required for jadx)"
-has curl    && success "curl found" || error "curl required"
-has unzip   && success "unzip found" || error "unzip required"
-
+# ── jadx ─────────────────────────────────────────────────────────────────────
 echo ""
 echo "── Installing tools ────────────────────────────────────"
 
-# ── jadx ─────────────────────────────────────────────────────────────────────
 if has jadx; then
     success "jadx already installed: $(jadx --version 2>/dev/null | head -1)"
 else
@@ -41,7 +55,6 @@ else
     JADX_VERSION="1.5.0"
     JADX_ZIP="jadx-${JADX_VERSION}.zip"
     JADX_URL="https://github.com/skylot/jadx/releases/download/v${JADX_VERSION}/${JADX_ZIP}"
-
     curl -L -o "/tmp/${JADX_ZIP}" "$JADX_URL"
     sudo mkdir -p /opt/jadx
     sudo unzip -o "/tmp/${JADX_ZIP}" -d /opt/jadx
@@ -58,10 +71,8 @@ else
     APKTOOL_VERSION="2.9.3"
     APKTOOL_JAR="apktool_${APKTOOL_VERSION}.jar"
     APKTOOL_URL="https://github.com/iBotPeaches/Apktool/releases/download/v${APKTOOL_VERSION}/${APKTOOL_JAR}"
-
     curl -L -o "/tmp/${APKTOOL_JAR}" "$APKTOOL_URL"
     sudo cp "/tmp/${APKTOOL_JAR}" /usr/local/lib/apktool.jar
-
     cat > /tmp/apktool_wrapper << 'EOF'
 #!/usr/bin/env bash
 exec java -jar /usr/local/lib/apktool.jar "$@"
@@ -77,11 +88,7 @@ if has rg; then
 else
     info "Installing ripgrep..."
     if [[ "$OS" == "Darwin" ]]; then
-        if has brew; then
-            brew install ripgrep
-        else
-            warn "Homebrew not found. Install ripgrep manually: https://github.com/BurntSushi/ripgrep"
-        fi
+        has brew && brew install ripgrep || warn "Install ripgrep: https://github.com/BurntSushi/ripgrep"
     elif [[ "$OS" == "Linux" ]]; then
         if has apt-get; then
             sudo apt-get install -y ripgrep 2>/dev/null || true
@@ -97,103 +104,102 @@ if has apkeep; then
     success "apkeep already installed"
 else
     info "Installing apkeep (APK downloader)..."
-    APKEEP_URL="https://github.com/EFForg/apkeep/releases/latest/download/apkeep-x86_64-unknown-linux-gnu"
     if [[ "$OS" == "Darwin" ]]; then
         APKEEP_URL="https://github.com/EFForg/apkeep/releases/latest/download/apkeep-x86_64-apple-darwin"
+    else
+        APKEEP_URL="https://github.com/EFForg/apkeep/releases/latest/download/apkeep-x86_64-unknown-linux-gnu"
     fi
-
     curl -L -o /tmp/apkeep "$APKEEP_URL" 2>/dev/null && \
-    sudo mv /tmp/apkeep /usr/local/bin/apkeep && \
-    sudo chmod +x /usr/local/bin/apkeep && \
-    success "apkeep installed" || warn "apkeep install failed — APK download will use fallback"
+        sudo mv /tmp/apkeep /usr/local/bin/apkeep && \
+        sudo chmod +x /usr/local/bin/apkeep && \
+        success "apkeep installed" || warn "apkeep install failed — APK download will use fallback method"
 fi
 
 # ── semgrep ───────────────────────────────────────────────────────────────────
 if has semgrep; then
     success "semgrep already installed"
 else
-    info "Installing semgrep (optional — static analysis)..."
-    # Try pipx first (works on Kali/Debian externally-managed envs)
+    info "Installing semgrep (optional static analysis)..."
     if has pipx; then
-        pipx install semgrep --quiet 2>/dev/null && success "semgrep installed via pipx" && \
-        export PATH="$PATH:$HOME/.local/bin"
-    # Try apt (Kali has semgrep package)
+        pipx install semgrep --quiet 2>/dev/null && success "semgrep installed via pipx" || true
     elif has apt-get; then
         sudo apt-get install -y semgrep 2>/dev/null && success "semgrep installed via apt" || \
-        { info "Trying pipx install..."; sudo apt-get install -y pipx 2>/dev/null; pipx install semgrep 2>/dev/null && success "semgrep installed via pipx" || warn "semgrep install failed — continuing without it"; }
+            { pip3 install semgrep --break-system-packages --quiet 2>/dev/null && \
+              success "semgrep installed via pip" || warn "semgrep install failed — continuing without it"; }
     elif has pip3; then
         pip3 install semgrep --break-system-packages --quiet 2>/dev/null && \
-        success "semgrep installed" || warn "semgrep install failed — continuing without it"
+            success "semgrep installed" || warn "semgrep install failed — continuing without it"
     else
         warn "semgrep not installed — continuing without it"
     fi
 fi
 
-# ── ipatool (iOS) ─────────────────────────────────────────────────────────────
+# ── ipatool (iOS, optional) ───────────────────────────────────────────────────
 if has ipatool; then
     success "ipatool already installed"
 else
-    info "ipatool not found (optional — required for iOS IPA download)"
     if [[ "$OS" == "Darwin" ]] && has brew; then
-        warn "Install with: brew install majd/repo/ipatool"
+        warn "ipatool not found (iOS IPA download). Install: brew install majd/repo/ipatool"
     else
-        warn "Install from: https://github.com/majd/ipatool"
+        info "ipatool not available on Linux (iOS scanning requires manual IPA)"
     fi
 fi
 
 # ── Python dependencies ───────────────────────────────────────────────────────
 echo ""
 echo "── Python dependencies ─────────────────────────────────"
-pip3 install --quiet requests beautifulsoup4 2>/dev/null || pip3 install --break-system-packages --quiet requests beautifulsoup4 2>/dev/null || true
-success "Python dependencies ready"
+pip3 install --quiet requests beautifulsoup4 2>/dev/null || \
+    pip3 install --break-system-packages --quiet requests beautifulsoup4 2>/dev/null || true
+success "Python dependencies ready (requests, beautifulsoup4)"
+
+# ── Gemini CLI check ──────────────────────────────────────────────────────────
+echo ""
+echo "── AI Backend (Gemini CLI) ─────────────────────────────"
+if has gemini; then
+    success "gemini CLI found: $(gemini --version 2>/dev/null || echo 'installed')"
+else
+    warn "Gemini CLI not found"
+    info "Install with:"
+    info "  npm install -g @google/gemini-cli"
+    info "  gemini   ← run once to authenticate with Google account"
+fi
+
+if has node; then
+    success "node.js: $(node --version)"
+else
+    warn "node.js not found — required for Gemini CLI"
+    if [[ "$OS" == "Linux" ]]; then
+        info "Install: curl -fsSL https://deb.nodesource.com/setup_20.x | sudo bash - && sudo apt-get install -y nodejs"
+    elif [[ "$OS" == "Darwin" ]]; then
+        info "Install: brew install node"
+    fi
+fi
 
 # ── Directory structure ───────────────────────────────────────────────────────
 echo ""
 echo "── Creating directories ────────────────────────────────"
-mkdir -p downloads output
+mkdir -p "${SCRIPT_DIR}/downloads" "${SCRIPT_DIR}/output"
 success "downloads/ and output/ directories ready"
 
-# ── Install as Claude Code plugin ─────────────────────────────────────────────
-echo ""
-echo "── Claude Code plugin ──────────────────────────────────"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Method 1: workspace .claude/plugins (Claude Code project-level)
-WORKSPACE_CLAUDE="${SCRIPT_DIR}/../.claude"
-# Method 2: global ~/.claude
-GLOBAL_CLAUDE="${HOME}/.claude"
-
-INSTALLED=false
-for CLAUDE_DIR in "$WORKSPACE_CLAUDE" "$GLOBAL_CLAUDE"; do
-    if [[ -d "$CLAUDE_DIR" ]]; then
-        PLUGINS_DIR="${CLAUDE_DIR}/plugins"
-        mkdir -p "$PLUGINS_DIR"
-        ln -sf "$SCRIPT_DIR" "${PLUGINS_DIR}/mobile-security-agent"
-        success "Claude Code plugin → ${PLUGINS_DIR}/mobile-security-agent"
-        INSTALLED=true
-        break
-    fi
-done
-
-if [[ "$INSTALLED" == false ]]; then
-    # Create .claude in current dir for Claude Code to pick up
-    mkdir -p "${SCRIPT_DIR}/.claude/plugins"
-    ln -sf "$SCRIPT_DIR" "${SCRIPT_DIR}/.claude/plugins/mobile-security-agent"
-    info "Created .claude/plugins/ in tool directory"
-    info "To use with Claude Code: open this folder as your workspace"
-fi
-
+# ── Final summary ─────────────────────────────────────────────────────────────
 echo ""
 echo "╔══════════════════════════════════════════════════════╗"
 echo "║  ✅ Setup complete!                                   ║"
 echo "╠══════════════════════════════════════════════════════╣"
-echo "║  Usage:                                               ║"
-echo "║                                                       ║"
-echo "║  # CLI                                                ║"
-echo "║  python3 msa.py scan <play_store_url>                 ║"
-echo "║  python3 msa.py scan <app_store_url>                  ║"
-echo "║  python3 msa.py scan app.apk                          ║"
-echo "║                                                       ║"
-echo "║  # Claude Code                                        ║"
-echo "║  /scan https://play.google.com/store/apps/details?.. ║"
+echo "║                                                      ║"
+echo "║  Quick start:                                        ║"
+echo "║                                                      ║"
+echo "║  # Check AI backend status                          ║"
+echo "║  python3 msa.py ai-info                             ║"
+echo "║                                                      ║"
+echo "║  # Scan from Play Store URL                         ║"
+echo "║  python3 msa.py scan \                              ║"
+echo "║    'https://play.google.com/store/apps/...'         ║"
+echo "║                                                      ║"
+echo "║  # Scan local APK                                   ║"
+echo "║  python3 msa.py scan app.apk                        ║"
+echo "║                                                      ║"
+echo "║  # Scan without AI (faster)                         ║"
+echo "║  python3 msa.py scan app.apk --no-ai                ║"
+echo "║                                                      ║"
 echo "╚══════════════════════════════════════════════════════╝"
