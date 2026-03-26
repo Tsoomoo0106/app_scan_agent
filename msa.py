@@ -18,23 +18,22 @@ os.chdir(TOOL_DIR)  # Always run from tool directory
 
 BANNER = """
 ╔══════════════════════════════════════════════════════╗
-║        📱 Mobile Security Agent v1.1                 ║
-║        APK & IPA Security Analysis Tool              ║
+║  📱 Mobile Security Agent v1.2                       ║
+║  APK & IPA Security Analysis Tool (Gemini CLI)       ║
 ╚══════════════════════════════════════════════════════╝
 """
 
 # ── AI Backend detection ──────────────────────────────────────────────────────
-
 def detect_ai_backend() -> str:
     """Detect which AI CLI is available for code review."""
     if shutil.which("gemini"):
         return "gemini"
     if shutil.which("claude"):
         return "claude"
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return "anthropic_api"
     if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
         return "gemini_api"
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return "anthropic_api"
     return "none"
 
 def ai_review(prompt: str, backend: str = None) -> str:
@@ -56,13 +55,26 @@ def ai_review(prompt: str, backend: str = None) -> str:
         )
         return result.stdout.strip() if result.returncode == 0 else f"[claude error] {result.stderr[:200]}"
 
-    elif backend == "anthropic_api":
-        return _ai_via_anthropic_api(prompt)
-
     elif backend == "gemini_api":
         return _ai_via_gemini_api(prompt)
 
+    elif backend == "anthropic_api":
+        return _ai_via_anthropic_api(prompt)
+
     return "[no AI backend] Install gemini CLI: npm install -g @google/gemini-cli"
+
+def _ai_via_gemini_api(prompt: str) -> str:
+    try:
+        import urllib.request, json
+        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        body = json.dumps({"contents": [{"parts": [{"text": prompt}]}]}).encode()
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read())
+        return data["candidates"][0]["content"]["parts"][0]["text"]
+    except Exception as e:
+        return f"[gemini_api error] {e}"
 
 def _ai_via_anthropic_api(prompt: str) -> str:
     try:
@@ -85,21 +97,7 @@ def _ai_via_anthropic_api(prompt: str) -> str:
     except Exception as e:
         return f"[anthropic_api error] {e}"
 
-def _ai_via_gemini_api(prompt: str) -> str:
-    try:
-        import urllib.request, json
-        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-        body = json.dumps({"contents": [{"parts": [{"text": prompt}]}]}).encode()
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
-        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            data = json.loads(resp.read())
-        return data["candidates"][0]["content"]["parts"][0]["text"]
-    except Exception as e:
-        return f"[gemini_api error] {e}"
-
 # ── Input type detection ──────────────────────────────────────────────────────
-
 def detect_input_type(target: str) -> dict:
     info = {"type": None, "platform": None, "identifier": None}
 
@@ -147,7 +145,6 @@ def detect_input_type(target: str) -> dict:
     return info
 
 # ── Commands ──────────────────────────────────────────────────────────────────
-
 def cmd_scan(args):
     from scripts.fetcher import fetch_app
     from scripts.unpacker import unpack_app
@@ -159,43 +156,45 @@ def cmd_scan(args):
     target = args.target
     backend = detect_ai_backend()
     backend_label = {
-        "gemini": "🤖 Gemini CLI", "claude": "🤖 Claude CLI",
-        "anthropic_api": "🤖 Anthropic API", "gemini_api": "🤖 Gemini API",
+        "gemini": "🤖 Gemini CLI",
+        "claude": "🤖 Claude CLI",
+        "gemini_api": "🤖 Gemini API",
+        "anthropic_api": "🤖 Anthropic API",
         "none": "⚠️  No AI backend"
     }.get(backend, backend)
 
     print(f"  AI backend : {backend_label}")
-    print(f"🎯 Target   : {target}\n")
+    print(f"🎯 Target    : {target}\n")
 
-    print("Step 1/6  🔍 Detecting input type...")
+    print("Step 1/6 🔍 Detecting input type...")
     info = detect_input_type(target)
     info["ai_backend"] = backend
-    print(f"          Platform : {info['platform'].upper()}")
-    print(f"          Package  : {info['identifier']}")
+    print(f"  Platform   : {info['platform'].upper()}")
+    print(f"  Package    : {info['identifier']}")
 
-    print("\nStep 2/6  📥 Fetching app...")
+    print("\nStep 2/6 📥 Fetching app...")
     local_file = fetch_app(target, info)
 
-    print("\nStep 3/6  📦 Unpacking / decompiling...")
+    print("\nStep 3/6 📦 Unpacking / decompiling...")
     output_dir = unpack_app(local_file, info)
 
-    print("\nStep 4/6  🔎 Running security detectors...")
+    print("\nStep 4/6 🔎 Running security detectors...")
     findings = hunt_app(output_dir, info)
 
     if backend != "none" and not getattr(args, 'no_ai', False):
-        print(f"\nStep 5/6  🧠 AI code review ({backend_label})...")
+        print(f"\nStep 5/6 🧠 AI code review ({backend_label})...")
         findings = review_top_findings(output_dir, findings, info, ai_review_fn=ai_review)
     else:
-        print(f"\nStep 5/6  🧠 AI code review skipped")
+        print(f"\nStep 5/6 🧠 AI code review skipped")
         if backend == "none":
-            print("          💡 Install gemini CLI: npm install -g @google/gemini-cli")
+            print("  💡 Install Gemini CLI: npm install -g @google/gemini-cli && gemini")
 
-    print("\nStep 6/6  📄 Generating report...")
+    print("\nStep 6/6 📄 Generating report...")
     report_path = generate_report(output_dir, findings, info)
 
     counts = {}
     for f in findings:
-        counts[f.get("severity","INFO")] = counts.get(f.get("severity","INFO"), 0) + 1
+        counts[f.get("severity", "INFO")] = counts.get(f.get("severity", "INFO"), 0) + 1
 
     print(f"\n{'='*54}")
     print(f"✅ Scan complete!")
@@ -252,15 +251,15 @@ def cmd_permissions(args):
 def cmd_ai_info(args):
     backend = detect_ai_backend()
     print(f"\n🤖 AI Backend Detection\n{'='*40}")
-    print(f"  Active      : {backend}")
-    print(f"  gemini CLI  : {'✅' if shutil.which('gemini') else '❌  npm install -g @google/gemini-cli'}")
-    print(f"  claude CLI  : {'✅' if shutil.which('claude') else '❌  https://claude.ai/code'}")
-    print(f"  GEMINI_API_KEY    : {'✅ set' if os.environ.get('GEMINI_API_KEY') else '❌ not set'}")
-    print(f"  ANTHROPIC_API_KEY : {'✅ set' if os.environ.get('ANTHROPIC_API_KEY') else '❌ not set'}")
+    print(f"  Active             : {backend}")
+    print(f"  gemini CLI         : {'✅' if shutil.which('gemini') else '❌  npm install -g @google/gemini-cli'}")
+    print(f"  claude CLI         : {'✅' if shutil.which('claude') else '❌  https://claude.ai/code'}")
+    print(f"  GEMINI_API_KEY     : {'✅ set' if os.environ.get('GEMINI_API_KEY') else '❌ not set'}")
+    print(f"  ANTHROPIC_API_KEY  : {'✅ set' if os.environ.get('ANTHROPIC_API_KEY') else '❌ not set'}")
     if backend == "none":
-        print(f"\n  💡 Quickest option on Kali:")
+        print(f"\n  💡 Quickest option:")
         print(f"     npm install -g @google/gemini-cli")
-        print(f"     gemini   # login once")
+        print(f"     gemini   # login once with Google account")
         print(f"     # then re-run: python3 msa.py scan <url>")
 
 def main():
@@ -300,7 +299,7 @@ def main():
     p.add_argument("manifest")
     p.set_defaults(func=cmd_permissions)
 
-    p = sub.add_parser("ai-info", help="Show AI backend detection")
+    p = sub.add_parser("ai-info", help="Show AI backend detection status")
     p.set_defaults(func=cmd_ai_info)
 
     args = parser.parse_args()
