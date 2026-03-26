@@ -6,6 +6,7 @@ DOWNLOADS_DIR = Path("downloads")
 
 def fetch_app(target: str, info: dict) -> str:
     DOWNLOADS_DIR.mkdir(exist_ok=True)
+
     if info["type"] == "file":
         path = Path(target)
         if not path.exists():
@@ -13,8 +14,10 @@ def fetch_app(target: str, info: dict) -> str:
             sys.exit(1)
         print(f"  ✅ Using local file: {target}")
         return str(path)
+
     platform = info.get("platform")
     identifier = info.get("identifier", "unknown")
+
     if platform == "android":
         return _fetch_apk(target, identifier)
     elif platform == "ios":
@@ -25,33 +28,44 @@ def fetch_app(target: str, info: dict) -> str:
 
 def _fetch_apk(url: str, package_id: str) -> str:
     out_path = DOWNLOADS_DIR / f"{package_id}.apk"
-    if out_path.exists() and out_path.stat().st_size > 100000:
+
+    if out_path.exists() and out_path.stat().st_size > 100_000:
         print(f"  ✅ Already downloaded: {out_path}")
         return str(out_path)
+
     print(f"  📦 Package: {package_id}")
+
     # Method 1: apkeep
     if _tool_exists("apkeep"):
         print("  🔧 Trying apkeep...")
-        subprocess.run(["apkeep", "-a", package_id, "-d", str(DOWNLOADS_DIR)],
-                       capture_output=True)
-        if out_path.exists() and out_path.stat().st_size > 100000:
+        subprocess.run(
+            ["apkeep", "-a", package_id, "-d", str(DOWNLOADS_DIR)],
+            capture_output=True
+        )
+        if out_path.exists() and out_path.stat().st_size > 100_000:
             print(f"  ✅ Downloaded: {out_path}")
             return str(out_path)
-    # Method 2: APKPure
+
+    # Method 2: APKPure scrape
     print("  🔧 Trying APKPure...")
     apk_url = _get_apkpure_url(package_id)
     if apk_url:
-        subprocess.run(["curl", "-L", "-o", str(out_path), "--user-agent", "Mozilla/5.0", apk_url])
-        if out_path.exists() and out_path.stat().st_size > 100000:
+        subprocess.run([
+            "curl", "-L", "-o", str(out_path),
+            "--user-agent", "Mozilla/5.0",
+            apk_url
+        ])
+        if out_path.exists() and out_path.stat().st_size > 100_000:
             print(f"  ✅ Downloaded: {out_path}")
             return str(out_path)
-    # Fallback
+
+    # Fallback instructions
     print(f"\n  ⚠️  Auto-download failed. Manual options:")
-    print(f"    1. https://apkpure.com/{package_id}/{package_id}")
-    print(f"    2. https://apkcombo.com/apk/{package_id}")
-    print(f"    3. adb shell pm path {package_id} && adb pull <path>")
+    print(f"     1. https://apkpure.com/{package_id}/{package_id}")
+    print(f"     2. https://apkcombo.com/apk/{package_id}")
+    print(f"     3. adb shell pm path {package_id}  &&  adb pull <path>")
     print(f"\n  After downloading, run:")
-    print(f"    python3 msa.py scan downloads/{package_id}.apk")
+    print(f"     python3 msa.py scan downloads/{package_id}.apk")
     sys.exit(1)
 
 def _fetch_ipa(url: str, app_id: str) -> str:
@@ -59,9 +73,13 @@ def _fetch_ipa(url: str, app_id: str) -> str:
     if out_path.exists():
         print(f"  ✅ Already downloaded: {out_path}")
         return str(out_path)
+
     print(f"\n  ⚠️  iOS IPA download requires authentication.")
-    print(f"    1. ipatool: brew install majd/repo/ipatool")
-    print(f"    2. Or provide IPA file manually")
+    print(f"     Option 1: brew install majd/repo/ipatool")
+    print(f"              ipatool auth login -e your@email.com")
+    print(f"              ipatool download -b {app_id} -o downloads/")
+    print(f"     Option 2: Provide IPA file manually and run:")
+    print(f"              python3 msa.py scan MyApp.ipa")
     sys.exit(1)
 
 def _get_apkpure_url(package_id: str):
@@ -69,7 +87,8 @@ def _get_apkpure_url(package_id: str):
     try:
         req = urllib.request.Request(
             f"https://apkpure.com/{package_id}/{package_id}/download",
-            headers={"User-Agent": "Mozilla/5.0"})
+            headers={"User-Agent": "Mozilla/5.0"}
+        )
         with urllib.request.urlopen(req, timeout=15) as r:
             content = r.read().decode("utf-8", errors="ignore")
         m = re.search(r'href="(https://[^"]+\.apk[^"]*)"', content)
